@@ -1,10 +1,8 @@
-package main
+package config
 
 import (
 	"fmt"
-	"net"
 	"os"
-	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -39,41 +37,4 @@ func ParseConfig(data []byte) (*Config, error) {
 		return nil, fmt.Errorf("public and admin port must differ")
 	}
 	return cfg, nil
-}
-
-// ParseNets parses a list of CIDRs or single IPs.
-func ParseNets(list []string) ([]*net.IPNet, error) {
-	var nets []*net.IPNet
-	for _, s := range list {
-		s = strings.TrimSpace(s)
-		if !strings.Contains(s, "/") {
-			ip := net.ParseIP(s)
-			if ip == nil {
-				return nil, fmt.Errorf("invalid IP %q", s)
-			}
-			if ip4 := ip.To4(); ip4 != nil {
-				s += "/32"
-			} else {
-				s += "/128"
-			}
-		}
-		_, n, err := net.ParseCIDR(s)
-		if err != nil {
-			return nil, fmt.Errorf("invalid CIDR %q: %w", s, err)
-		}
-		nets = append(nets, n)
-	}
-	return nets, nil
-}
-
-func ipInNets(ip net.IP, nets []*net.IPNet) bool {
-	if ip == nil {
-		return false
-	}
-	for _, n := range nets {
-		if n.Contains(ip) {
-			return true
-		}
-	}
-	return false
 }

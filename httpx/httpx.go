@@ -1,6 +1,8 @@
-package main
+// Package httpx holds HTTP helpers shared by the public and admin servers.
+package httpx
 
 import (
+	"fmt"
 	"net"
 	"net/http"
 	"strconv"
@@ -35,7 +37,7 @@ func clientInfo(r *http.Request, trusted []*net.IPNet) (ip net.IP, proto, host s
 		proto = "https"
 	}
 	host = r.Host
-	if !ipInNets(ip, trusted) {
+	if !InNets(ip, trusted) {
 		return
 	}
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
@@ -47,7 +49,7 @@ func clientInfo(r *http.Request, trusted []*net.IPNet) (ip net.IP, proto, host s
 				break
 			}
 			ip = p
-			if !ipInNets(p, trusted) {
+			if !InNets(p, trusted) {
 				break
 			}
 		}
@@ -78,14 +80,14 @@ func (w *statusWriter) Write(b []byte) (int, error) {
 	return n, err
 }
 
-// withAccessLog wraps a handler with X-Forwarded-* handling, optional IP
+// WithAccessLog wraps a handler with X-Forwarded-* handling, optional IP
 // allow-listing (allowed == nil disables it) and access logging.
-func withAccessLog(server string, log zerolog.Logger, trusted, allowed []*net.IPNet, next http.Handler) http.Handler {
+func WithAccessLog(server string, log zerolog.Logger, trusted, allowed []*net.IPNet, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		ip, proto, host := clientInfo(r, trusted)
 		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
-		if allowed != nil && !ipInNets(ip, allowed) {
+		if allowed != nil && !InNets(ip, allowed) {
 			http.Error(sw, "forbidden", http.StatusForbidden)
 		} else {
 			next.ServeHTTP(sw, r)
@@ -112,4 +114,41 @@ func ipString(ip net.IP) string {
 		return ""
 	}
 	return ip.String()
+}
+
+// ParseNets parses a list of CIDRs or single IPs.
+func ParseNets(list []string) ([]*net.IPNet, error) {
+	var nets []*net.IPNet
+	for _, s := range list {
+		s = strings.TrimSpace(s)
+		if !strings.Contains(s, "/") {
+			ip := net.ParseIP(s)
+			if ip == nil {
+				return nil, fmt.Errorf("invalid IP %q", s)
+			}
+			if ip4 := ip.To4(); ip4 != nil {
+				s += "/32"
+			} else {
+				s += "/128"
+			}
+		}
+		_, n, err := net.ParseCIDR(s)
+		if err != nil {
+			return nil, fmt.Errorf("invalid CIDR %q: %w", s, err)
+		}
+		nets = append(nets, n)
+	}
+	return nets, nil
+}
+
+func InNets(ip net.IP, nets []*net.IPNet) bool {
+	if ip == nil {
+		return false
+	}
+	for _, n := range nets {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }

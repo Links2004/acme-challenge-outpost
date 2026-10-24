@@ -1,4 +1,4 @@
-package main
+package store
 
 import "sync"
 
@@ -8,7 +8,7 @@ type Store struct {
 	tokens map[string]string
 }
 
-func NewStore() *Store {
+func New() *Store {
 	return &Store{tokens: map[string]string{}}
 }
 
