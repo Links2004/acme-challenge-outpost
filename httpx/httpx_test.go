@@ -32,25 +32,38 @@ func TestParseNets(t *testing.T) {
 }
 
 func TestAllowedIPs(t *testing.T) {
-	trusted, _ := ParseNets([]string{"10.0.0.0/24"})
-	allowed, _ := ParseNets([]string{"192.168.0.0/24", "192.168.1.1"})
-	h := WithAccessLog("admin", zerolog.Nop(), trusted, allowed, ok)
+	allowed, _ := ParseNets([]string{"192.168.0.0/24", "192.168.1.1", "5.6.7.8"})
+	h, err := WithAccessLog("admin", zerolog.Nop(), []string{"10.0.0.0/24"}, allowed, ok)
+	require.NoError(t, err)
 	require.Equal(t, 403, do(h, "8.8.8.8:1", nil).Code)
-	require.Equal(t, 403, do(h, "8.8.8.8:1", map[string]string{"X-Forwarded-For": "192.168.1.1"}).Code)
-	require.Equal(t, 204, do(h, "10.0.0.5:1", map[string]string{"X-Forwarded-For": "192.168.1.1"}).Code)
-	require.Equal(t, 403, do(h, "10.0.0.5:1", map[string]string{"X-Forwarded-For": "192.168.1.1, 8.8.8.8"}).Code)
+	// untrusted peer cannot spoof via XFF
+	require.Equal(t, 403, do(h, "8.8.8.8:1", map[string]string{"X-Forwarded-For": "5.6.7.8"}).Code)
+	// trusted proxy forwarding an allowed (public) client
+	require.Equal(t, 204, do(h, "10.0.0.5:1", map[string]string{"X-Forwarded-For": "5.6.7.8"}).Code)
+	// trusted proxy forwarding a disallowed client
+	require.Equal(t, 403, do(h, "10.0.0.5:1", map[string]string{"X-Forwarded-For": "8.8.8.8"}).Code)
 	require.Equal(t, 204, do(h, "192.168.0.9:1", nil).Code)
+}
+
+func TestInvalidTrustedProxy(t *testing.T) {
+	_, err := WithAccessLog("x", zerolog.Nop(), []string{"bogus"}, nil, ok)
+	require.Error(t, err)
 }
 
 func TestAccessLogForwardedHeaders(t *testing.T) {
 	var buf bytes.Buffer
-	trusted, _ := ParseNets([]string{"10.2.2.2"})
-	h := WithAccessLog("public", zerolog.New(&buf), trusted, nil, ok)
+	h, err := WithAccessLog("public", zerolog.New(&buf), []string{"10.2.2.2"}, nil, ok)
+	require.NoError(t, err)
 	do(h, "10.2.2.2:9", map[string]string{
 		"X-Forwarded-For": "5.6.7.8", "X-Forwarded-Proto": "https", "X-Forwarded-Host": "example.com"})
 	out := buf.String()
-	require.Contains(t, out, `"client_ip":"5.6.7.8"`)
+	require.Contains(t, out, `"client_ip":"5.6.7.8:9"`)
 	require.Contains(t, out, `"proto":"https"`)
 	require.Contains(t, out, `"host":"example.com"`)
 	require.Contains(t, out, `"status":204`)
+
+	buf.Reset()
+	do(h, "9.9.9.9:9", map[string]string{"X-Forwarded-For": "5.6.7.8", "X-Forwarded-Host": "evil.com"})
+	require.Contains(t, buf.String(), `"client_ip":"9.9.9.9:9"`)
+	require.NotContains(t, buf.String(), "evil.com")
 }

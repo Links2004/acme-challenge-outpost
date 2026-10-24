@@ -35,10 +35,6 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("load config")
 	}
-	trusted, err := httpx.ParseNets(cfg.TrustedProxyIPs)
-	if err != nil {
-		log.Fatal().Err(err).Msg("trustedProxyIPs")
-	}
 	allowed, err := httpx.ParseNets(cfg.Admin.AllowedIPs)
 	if err != nil {
 		log.Fatal().Err(err).Msg("admin allowedIPs")
@@ -48,8 +44,16 @@ func main() {
 	}
 
 	st := store.New()
-	pub := newServer(cfg.Public.Port, httpx.WithAccessLog("public", log, trusted, nil, public.Handler(st)))
-	adm := newServer(cfg.Admin.Port, httpx.WithAccessLog("admin", log, trusted, allowed, admin.Handler(st, log)))
+	pubH, err := httpx.WithAccessLog("public", log, cfg.TrustedProxyIPs, nil, public.Handler(st))
+	if err != nil {
+		log.Fatal().Err(err).Msg("trustedProxyIPs")
+	}
+	admH, err := httpx.WithAccessLog("admin", log, cfg.TrustedProxyIPs, allowed, admin.Handler(st, log))
+	if err != nil {
+		log.Fatal().Err(err).Msg("trustedProxyIPs")
+	}
+	pub := newServer(cfg.Public.Port, pubH)
+	adm := newServer(cfg.Admin.Port, admH)
 
 	errCh := make(chan error, 2)
 	go func() { log.Info().Int("port", cfg.Public.Port).Msg("public listening"); errCh <- pub.ListenAndServe() }()
