@@ -1,11 +1,16 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/Links2004/acme-challenge-outpost/admin"
@@ -15,6 +20,10 @@ import (
 	"github.com/Links2004/acme-challenge-outpost/store"
 	"github.com/rs/zerolog"
 )
+
+// shutdownTimeout stays below the k8s default terminationGracePeriodSeconds (30s)
+// and systemd default TimeoutStopSec (90s).
+const shutdownTimeout = 20 * time.Second
 
 func newServer(port int, h http.Handler) *http.Server {
 	return &http.Server{
@@ -55,8 +64,55 @@ func main() {
 	pub := newServer(cfg.Public.Port, pubH)
 	adm := newServer(cfg.Admin.Port, admH)
 
-	errCh := make(chan error, 2)
-	go func() { log.Info().Int("port", cfg.Public.Port).Msg("public listening"); errCh <- pub.ListenAndServe() }()
-	go func() { log.Info().Int("port", cfg.Admin.Port).Msg("admin listening"); errCh <- adm.ListenAndServe() }()
-	log.Fatal().Err(<-errCh).Msg("server stopped")
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
+	defer stop()
+
+	log.Info().Int("public_port", cfg.Public.Port).Int("admin_port", cfg.Admin.Port).Msg("starting")
+	if err := serve(ctx, log, shutdownTimeout, pub, adm); err != nil {
+		log.Error().Err(err).Msg("server stopped")
+		stop()
+		os.Exit(1)
+	}
+	log.Info().Msg("shutdown complete")
+}
+
+// serve runs all servers until ctx is cancelled (SIGTERM from k8s/systemd or
+// SIGINT) or one of them fails, then gracefully shuts all of them down,
+// waiting at most timeout for in-flight requests.
+func serve(ctx context.Context, log zerolog.Logger, timeout time.Duration, servers ...*http.Server) error {
+	errCh := make(chan error, len(servers))
+	for _, srv := range servers {
+		go func() {
+			if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				errCh <- err
+				return
+			}
+			errCh <- nil
+		}()
+	}
+
+	var result error
+	select {
+	case <-ctx.Done():
+		log.Info().Msg("shutdown signal received")
+	case result = <-errCh:
+	}
+
+	shutCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	for _, srv := range servers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := srv.Shutdown(shutCtx); err != nil {
+				mu.Lock()
+				result = errors.Join(result, err)
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	return result
 }
