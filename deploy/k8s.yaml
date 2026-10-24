@@ -1,0 +1,94 @@
+# Example deployment. Adjust namespace, image tag, and the IP ranges in the
+# ConfigMap (trustedProxyIPs = your ingress/proxy pods, allowedIPs = clients
+# that may call the admin port).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: acme-challenge-outpost
+data:
+  config.yaml: |
+    trustedProxyIPs:
+      - 10.0.0.0/8
+    public:
+      port: 8080
+    admin:
+      port: 9000
+      allowedIPs:
+        - 192.168.0.0/24
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: acme-challenge-outpost
+spec:
+  # Challenges are stored in memory per pod, so keep a single replica.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: acme-challenge-outpost
+  template:
+    metadata:
+      labels:
+        app: acme-challenge-outpost
+    spec:
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: outpost
+          image: ghcr.io/links2004/acme-challenge-outpost:main
+          args: ["-config", "/etc/acme-challenge-outpost/config.yaml"]
+          ports:
+            - name: public
+              containerPort: 8080
+            - name: admin
+              containerPort: 9000
+          # Probes use the public port: the admin port only allows allowedIPs.
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: public
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: public
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/acme-challenge-outpost
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: acme-challenge-outpost
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: acme-challenge-outpost
+spec:
+  selector:
+    app: acme-challenge-outpost
+  ports:
+    - name: public
+      port: 80
+      targetPort: public
+    - name: admin
+      port: 9000
+      targetPort: admin

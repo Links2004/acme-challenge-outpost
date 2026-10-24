@@ -15,6 +15,7 @@ import (
 
 	"github.com/Links2004/acme-challenge-outpost/admin"
 	"github.com/Links2004/acme-challenge-outpost/config"
+	"github.com/Links2004/acme-challenge-outpost/health"
 	"github.com/Links2004/acme-challenge-outpost/httpx"
 	"github.com/Links2004/acme-challenge-outpost/public"
 	"github.com/Links2004/acme-challenge-outpost/store"
@@ -53,7 +54,8 @@ func main() {
 	}
 
 	st := store.New()
-	pubH, err := httpx.WithAccessLog("public", log, cfg.TrustedProxyIPs, nil, public.Handler(st))
+	probe := health.New()
+	pubH, err := httpx.WithAccessLog("public", log, cfg.TrustedProxyIPs, nil, public.Handler(st, probe))
 	if err != nil {
 		log.Fatal().Err(err).Msg("trustedProxyIPs")
 	}
@@ -68,7 +70,7 @@ func main() {
 	defer stop()
 
 	log.Info().Int("public_port", cfg.Public.Port).Int("admin_port", cfg.Admin.Port).Msg("starting")
-	if err := serve(ctx, log, shutdownTimeout, pub, adm); err != nil {
+	if err := serve(ctx, log, shutdownTimeout, probe.SetNotReady, pub, adm); err != nil {
 		log.Error().Err(err).Msg("server stopped")
 		stop()
 		os.Exit(1)
@@ -77,9 +79,9 @@ func main() {
 }
 
 // serve runs all servers until ctx is cancelled (SIGTERM from k8s/systemd or
-// SIGINT) or one of them fails, then gracefully shuts all of them down,
+// SIGINT) or one of them fails, then calls beforeShutdown (e.g. to fail readiness) and gracefully shuts all of them down,
 // waiting at most timeout for in-flight requests.
-func serve(ctx context.Context, log zerolog.Logger, timeout time.Duration, servers ...*http.Server) error {
+func serve(ctx context.Context, log zerolog.Logger, timeout time.Duration, beforeShutdown func(), servers ...*http.Server) error {
 	errCh := make(chan error, len(servers))
 	for _, srv := range servers {
 		go func() {
@@ -98,6 +100,9 @@ func serve(ctx context.Context, log zerolog.Logger, timeout time.Duration, serve
 	case result = <-errCh:
 	}
 
+	if beforeShutdown != nil {
+		beforeShutdown()
+	}
 	shutCtx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	var wg sync.WaitGroup

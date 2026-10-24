@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/Links2004/acme-challenge-outpost/health"
 	"github.com/Links2004/acme-challenge-outpost/store"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -17,9 +18,13 @@ var tokenNotFound = promauto.NewCounter(prometheus.CounterOpts{
 
 const acmePrefix = "/.well-known/acme-challenge/"
 
-// Handler serves only /.well-known/acme-challenge/{token}.
-func Handler(st *store.Store) http.Handler {
+// Handler serves /.well-known/acme-challenge/{token} plus the /healthz and
+// /readyz probes. The probes live on the public port because the admin port is
+// IP restricted and the kubelet would be blocked.
+func Handler(st *store.Store, probe *health.Probe) http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", probe.Liveness)
+	mux.HandleFunc("/readyz", probe.Readiness)
 	mux.HandleFunc(acmePrefix, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

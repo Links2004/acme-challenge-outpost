@@ -33,3 +33,10 @@ KillSignal=SIGTERM
 TimeoutStopSec=30
 Restart=on-failure
 ```
+
+## Probes and Kubernetes example
+
+The public port serves `/healthz` (liveness) and `/readyz` (readiness, returns
+503 once shutdown has started). They are on the public port because the admin
+port only accepts `allowedIPs`. See `deploy/k8s.yaml` for an example
+Deployment, ConfigMap and Service.

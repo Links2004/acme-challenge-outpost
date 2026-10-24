@@ -31,7 +31,7 @@ func TestServeGracefulShutdown(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- serve(ctx, zerolog.Nop(), 5*time.Second, srv) }()
+	go func() { done <- serve(ctx, zerolog.Nop(), 5*time.Second, nil, srv) }()
 
 	var body string
 	reqDone := make(chan error, 1)
@@ -71,5 +71,5 @@ func TestServeReturnsListenError(t *testing.T) {
 	require.NoError(t, err)
 	defer l.Close()
 	srv := newServer(l.Addr().(*net.TCPAddr).Port, http.NotFoundHandler())
-	require.Error(t, serve(context.Background(), zerolog.Nop(), time.Second, srv))
+	require.Error(t, serve(context.Background(), zerolog.Nop(), time.Second, nil, srv))
 }
