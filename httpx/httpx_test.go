@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 )
@@ -35,7 +36,9 @@ func TestAllowedIPs(t *testing.T) {
 	allowed, _ := ParseNets([]string{"192.168.0.0/24", "192.168.1.1", "5.6.7.8"})
 	h, err := WithAccessLog("admin", zerolog.Nop(), []string{"10.0.0.0/24"}, allowed, ok)
 	require.NoError(t, err)
+	before := testutil.ToFloat64(blockedRequests.WithLabelValues("admin"))
 	require.Equal(t, 403, do(h, "8.8.8.8:1", nil).Code)
+	require.Equal(t, 1.0, testutil.ToFloat64(blockedRequests.WithLabelValues("admin"))-before)
 	// untrusted peer cannot spoof via XFF
 	require.Equal(t, 403, do(h, "8.8.8.8:1", map[string]string{"X-Forwarded-For": "5.6.7.8"}).Code)
 	// trusted proxy forwarding an allowed (public) client

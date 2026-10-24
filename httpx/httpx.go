@@ -39,6 +39,11 @@ func clientAddr(xffHeader string, trusted []*net.IPNet) net.IP {
 	return ip
 }
 
+var blockedRequests = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "acme_outpost_blocked_requests_total",
+	Help: "Requests rejected because the client IP is not allowed.",
+}, []string{"server"})
+
 // forwarded applies X-Forwarded-For, X-Forwarded-Proto and X-Forwarded-Host
 // when the direct peer is a trusted proxy.
 func forwarded(trusted []*net.IPNet, next http.Handler) http.Handler {
@@ -66,13 +71,14 @@ func forwarded(trusted []*net.IPNet, next http.Handler) http.Handler {
 }
 
 // allowOnly rejects clients whose (already resolved) address is not in allowed.
-func allowOnly(allowed []*net.IPNet, next http.Handler) http.Handler {
+func allowOnly(server string, allowed []*net.IPNet, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host, _, err := net.SplitHostPort(r.RemoteAddr)
 		if err != nil {
 			host = r.RemoteAddr
 		}
 		if !InNets(net.ParseIP(host), allowed) {
+			blockedRequests.WithLabelValues(server).Inc()
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
@@ -90,7 +96,7 @@ func WithAccessLog(server string, log zerolog.Logger, trustedProxies []string, a
 	}
 	h := next
 	if allowed != nil {
-		h = allowOnly(allowed, h)
+		h = allowOnly(server, allowed, h)
 	}
 	h = hlog.AccessHandler(func(r *http.Request, status, size int, d time.Duration) {
 		httpRequests.WithLabelValues(server, strconv.Itoa(status)).Inc()

@@ -6,7 +6,14 @@ import (
 	"strings"
 
 	"github.com/Links2004/acme-challenge-outpost/store"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 )
+
+var tokenNotFound = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "acme_outpost_public_token_not_found_total",
+	Help: "Public challenge requests for unknown tokens.",
+})
 
 const acmePrefix = "/.well-known/acme-challenge/"
 
@@ -21,6 +28,7 @@ func Handler(st *store.Store) http.Handler {
 		token := strings.TrimPrefix(r.URL.Path, acmePrefix)
 		keyAuth, ok := st.Get(token)
 		if !ok {
+			tokenNotFound.Inc()
 			http.NotFound(w, r)
 			return
 		}
