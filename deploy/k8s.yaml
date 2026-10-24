@@ -33,9 +33,12 @@ spec:
       labels:
         app: acme-challenge-outpost
     spec:
+      automountServiceAccountToken: false
       terminationGracePeriodSeconds: 30
       securityContext:
         runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -63,6 +66,7 @@ spec:
               cpu: 10m
               memory: 16Mi
             limits:
+              cpu: 100m
               memory: 64Mi
           securityContext:
             allowPrivilegeEscalation: false
