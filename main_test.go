@@ -36,7 +36,10 @@ func TestServeGracefulShutdown(t *testing.T) {
 	var body string
 	reqDone := make(chan error, 1)
 	require.Eventually(t, func() bool {
-		_, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+		c, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+		if err == nil {
+			c.Close()
+		}
 		return err == nil
 	}, 2*time.Second, 10*time.Millisecond)
 	go func() {
