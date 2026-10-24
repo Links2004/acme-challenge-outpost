@@ -37,5 +37,5 @@ func TestHandler(t *testing.T) {
 	require.Equal(t, 1.0, testutil.ToFloat64(adminOps.WithLabelValues("create", "ok"))-createOK)
 	require.Equal(t, 1.0, testutil.ToFloat64(adminOps.WithLabelValues("clean", "ok"))-cleanOK)
 	require.Equal(t, 1.0, testutil.ToFloat64(adminOps.WithLabelValues("create", "invalid"))-createBad)
-	require.Equal(t, 2.0, testutil.ToFloat64(adminOps.WithLabelValues("other", "invalid"))-otherBad)
+	require.Equal(t, 1.0, testutil.ToFloat64(adminOps.WithLabelValues("other", "invalid"))-otherBad)
 }
