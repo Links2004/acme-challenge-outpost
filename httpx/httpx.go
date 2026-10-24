@@ -13,7 +13,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/hlog"
-	"github.com/sebest/xff"
 )
 
 var httpRequests = promauto.NewCounterVec(prometheus.CounterOpts{
@@ -21,8 +20,27 @@ var httpRequests = promauto.NewCounterVec(prometheus.CounterOpts{
 	Help: "Total HTTP requests by server and status code.",
 }, []string{"server", "code"})
 
-// forwarded applies X-Forwarded-Proto and X-Forwarded-Host when the direct
-// peer is a trusted proxy.
+// clientAddr resolves the client address from X-Forwarded-For. The list is
+// walked from the right, skipping trusted proxies; the first untrusted entry
+// is the client. Private addresses are valid clients.
+func clientAddr(xffHeader string, trusted []*net.IPNet) net.IP {
+	parts := strings.Split(xffHeader, ",")
+	var ip net.IP
+	for i := len(parts) - 1; i >= 0; i-- {
+		p := net.ParseIP(strings.TrimSpace(parts[i]))
+		if p == nil {
+			break
+		}
+		ip = p
+		if !InNets(p, trusted) {
+			break
+		}
+	}
+	return ip
+}
+
+// forwarded applies X-Forwarded-For, X-Forwarded-Proto and X-Forwarded-Host
+// when the direct peer is a trusted proxy.
 func forwarded(trusted []*net.IPNet, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host, _, err := net.SplitHostPort(r.RemoteAddr)
@@ -30,6 +48,12 @@ func forwarded(trusted []*net.IPNet, next http.Handler) http.Handler {
 			host = r.RemoteAddr
 		}
 		if InNets(net.ParseIP(host), trusted) {
+			if v := r.Header.Get("X-Forwarded-For"); v != "" {
+				if ip := clientAddr(v, trusted); ip != nil {
+					_, port, _ := net.SplitHostPort(r.RemoteAddr)
+					r.RemoteAddr = net.JoinHostPort(ip.String(), port)
+				}
+			}
 			if v := r.Header.Get("X-Forwarded-Proto"); v == "http" || v == "https" {
 				r.URL.Scheme = v
 			}
@@ -64,20 +88,6 @@ func WithAccessLog(server string, log zerolog.Logger, trustedProxies []string, a
 	if err != nil {
 		return nil, err
 	}
-	// xff expects CIDR subnets
-	subnets := make([]string, len(trusted))
-	for i, n := range trusted {
-		subnets[i] = n.String()
-	}
-	x, err := xff.New(xff.Options{AllowedSubnets: subnets})
-	if err != nil {
-		return nil, err
-	}
-	if len(subnets) == 0 {
-		// no trusted proxies: never honour X-Forwarded-For
-		x = nil
-	}
-
 	h := next
 	if allowed != nil {
 		h = allowOnly(allowed, h)
@@ -105,10 +115,7 @@ func WithAccessLog(server string, log zerolog.Logger, trustedProxies []string, a
 	h = hlog.UserAgentHandler("user_agent")(h)
 	h = hlog.RemoteAddrHandler("client_ip")(h)
 	h = hlog.NewHandler(log)(h)
-	if x != nil {
-		h = x.Handler(h)
-	}
-	// outermost: must see the direct peer address before xff rewrites it
+	// outermost: sees the direct peer address and rewrites RemoteAddr
 	h = forwarded(trusted, h)
 	return h, nil
 }

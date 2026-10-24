@@ -5,7 +5,6 @@ go 1.26.0
 require (
 	github.com/prometheus/client_golang v1.25.0
 	github.com/rs/zerolog v1.35.1
-	github.com/sebest/xff v0.0.0-20210106013422-671bd2870b3a
 	github.com/stretchr/testify v1.12.1
 	gopkg.in/yaml.v3 v3.0.1
 )

@@ -40,6 +40,10 @@ func TestAllowedIPs(t *testing.T) {
 	require.Equal(t, 403, do(h, "8.8.8.8:1", map[string]string{"X-Forwarded-For": "5.6.7.8"}).Code)
 	// trusted proxy forwarding an allowed (public) client
 	require.Equal(t, 204, do(h, "10.0.0.5:1", map[string]string{"X-Forwarded-For": "5.6.7.8"}).Code)
+	// private client address, via chain of trusted proxies
+	require.Equal(t, 204, do(h, "10.0.0.5:1", map[string]string{"X-Forwarded-For": "192.168.1.1, 10.0.0.9"}).Code)
+	// spoofed leftmost entry is ignored
+	require.Equal(t, 403, do(h, "10.0.0.5:1", map[string]string{"X-Forwarded-For": "192.168.1.1, 8.8.8.8"}).Code)
 	// trusted proxy forwarding a disallowed client
 	require.Equal(t, 403, do(h, "10.0.0.5:1", map[string]string{"X-Forwarded-For": "8.8.8.8"}).Code)
 	require.Equal(t, 204, do(h, "192.168.0.9:1", nil).Code)
