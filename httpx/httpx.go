@@ -53,7 +53,7 @@ func forwarded(trusted []*net.IPNet, next http.Handler) http.Handler {
 			host = r.RemoteAddr
 		}
 		if InNets(net.ParseIP(host), trusted) {
-			if v := r.Header.Get("X-Forwarded-For"); v != "" {
+			if v := strings.Join(r.Header.Values("X-Forwarded-For"), ","); v != "" {
 				if ip := clientAddr(v, trusted); ip != nil {
 					_, port, _ := net.SplitHostPort(r.RemoteAddr)
 					r.RemoteAddr = net.JoinHostPort(ip.String(), port)
