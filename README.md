@@ -8,6 +8,7 @@ Small ACME challenge outpost for services not exposed to the internet.
   - `?mode=clean&token={token}`
 
 Both servers honor `X-Forwarded-*` from `trustedProxyIPs` and write zerolog access logs.
+Set `disableHealthCheckLogging: true` to omit access logs for `/healthz` and `/readyz`.
 
 Run: `go run . -config config.yaml` (see `config.example.yaml`).
 

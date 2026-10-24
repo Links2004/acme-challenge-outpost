@@ -57,7 +57,11 @@ func main() {
 
 	st := store.New()
 	probe := health.New()
-	pubH, err := httpx.WithAccessLog("public", log, cfg.TrustedProxyIPs, nil, public.Handler(st, probe))
+	var publicLogExclusions []string
+	if cfg.DisableHealthCheckLogging {
+		publicLogExclusions = []string{"/healthz", "/readyz"}
+	}
+	pubH, err := httpx.WithAccessLog("public", log, cfg.TrustedProxyIPs, nil, public.Handler(st, probe), publicLogExclusions...)
 	if err != nil {
 		log.Fatal().Err(err).Msg("trustedProxyIPs")
 	}

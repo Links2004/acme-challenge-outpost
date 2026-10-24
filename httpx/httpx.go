@@ -89,10 +89,14 @@ func allowOnly(server string, allowed []*net.IPNet, next http.Handler) http.Hand
 // WithAccessLog wraps a handler with X-Forwarded-* handling (trustedProxies,
 // as CIDRs or IPs), optional IP allow-listing (allowed == nil disables it)
 // and hlog based access logging.
-func WithAccessLog(server string, log zerolog.Logger, trustedProxies []string, allowed []*net.IPNet, next http.Handler) (http.Handler, error) {
+func WithAccessLog(server string, log zerolog.Logger, trustedProxies []string, allowed []*net.IPNet, next http.Handler, skipAccessLogPaths ...string) (http.Handler, error) {
 	trusted, err := ParseNets(trustedProxies)
 	if err != nil {
 		return nil, err
+	}
+	skipPaths := make(map[string]struct{}, len(skipAccessLogPaths))
+	for _, path := range skipAccessLogPaths {
+		skipPaths[path] = struct{}{}
 	}
 	h := next
 	if allowed != nil {
@@ -100,6 +104,9 @@ func WithAccessLog(server string, log zerolog.Logger, trustedProxies []string, a
 	}
 	h = hlog.AccessHandler(func(r *http.Request, status, size int, d time.Duration) {
 		httpRequests.WithLabelValues(server, strconv.Itoa(status)).Inc()
+		if _, skip := skipPaths[r.URL.Path]; skip {
+			return
+		}
 		scheme := r.URL.Scheme
 		if scheme == "" {
 			scheme = "http"

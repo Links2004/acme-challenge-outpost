@@ -14,7 +14,11 @@ import (
 var ok = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) })
 
 func do(h http.Handler, remote string, hdr map[string]string) *httptest.ResponseRecorder {
-	r := httptest.NewRequest("GET", "/p", nil)
+	return doPath(h, "/p", remote, hdr)
+}
+
+func doPath(h http.Handler, path, remote string, hdr map[string]string) *httptest.ResponseRecorder {
+	r := httptest.NewRequest("GET", path, nil)
 	r.RemoteAddr = remote
 	for k, v := range hdr {
 		r.Header.Set(k, v)
@@ -22,6 +26,23 @@ func do(h http.Handler, remote string, hdr map[string]string) *httptest.Response
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)
 	return w
+}
+
+func TestAccessLogExcludedPaths(t *testing.T) {
+	var buf bytes.Buffer
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusServiceUnavailable) })
+	mux.Handle("/", ok)
+	h, err := WithAccessLog("public", zerolog.New(&buf), nil, nil, mux, "/healthz", "/readyz")
+	require.NoError(t, err)
+
+	require.Equal(t, http.StatusOK, doPath(h, "/healthz", "127.0.0.1:1", nil).Code)
+	require.Empty(t, buf.String())
+	require.Equal(t, http.StatusServiceUnavailable, doPath(h, "/readyz", "127.0.0.1:1", nil).Code)
+	require.Empty(t, buf.String())
+	require.Equal(t, http.StatusNoContent, doPath(h, "/other", "127.0.0.1:1", nil).Code)
+	require.Contains(t, buf.String(), `"path":"/other"`)
 }
 
 func TestParseNets(t *testing.T) {
@@ -60,6 +81,24 @@ func TestInvalidTrustedProxy(t *testing.T) {
 func TestAccessLogForwardedHeaders(t *testing.T) {
 	var buf bytes.Buffer
 	h, err := WithAccessLog("public", zerolog.New(&buf), []string{"10.2.2.2"}, nil, ok)
+	require.NoError(t, err)
+	do(h, "10.2.2.2:9", map[string]string{
+		"X-Forwarded-For": "5.6.7.8", "X-Forwarded-Proto": "https", "X-Forwarded-Host": "example.com"})
+	out := buf.String()
+	require.Contains(t, out, `"client_ip":"5.6.7.8:9"`)
+	require.Contains(t, out, `"proto":"https"`)
+	require.Contains(t, out, `"host":"example.com"`)
+	require.Contains(t, out, `"status":204`)
+
+	buf.Reset()
+	do(h, "9.9.9.9:9", map[string]string{"X-Forwarded-For": "5.6.7.8", "X-Forwarded-Host": "evil.com"})
+	require.Contains(t, buf.String(), `"client_ip":"9.9.9.9:9"`)
+	require.NotContains(t, buf.String(), "evil.com")
+}
+
+func TestAccessLogForwardedHeadersCIDR(t *testing.T) {
+	var buf bytes.Buffer
+	h, err := WithAccessLog("public", zerolog.New(&buf), []string{"10.2.0.0/16"}, nil, ok)
 	require.NoError(t, err)
 	do(h, "10.2.2.2:9", map[string]string{
 		"X-Forwarded-For": "5.6.7.8", "X-Forwarded-Proto": "https", "X-Forwarded-Host": "example.com"})

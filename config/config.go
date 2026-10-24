@@ -8,8 +8,9 @@ import (
 )
 
 type Config struct {
-	TrustedProxyIPs []string `yaml:"trustedProxyIPs"`
-	Public          struct {
+	TrustedProxyIPs           []string `yaml:"trustedProxyIPs"`
+	DisableHealthCheckLogging bool     `yaml:"disableHealthCheckLogging"`
+	Public                    struct {
 		Port int `yaml:"port"`
 	} `yaml:"public"`
 	Admin struct {
