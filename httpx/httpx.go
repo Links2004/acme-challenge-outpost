@@ -137,7 +137,7 @@ func ParseNets(list []string) ([]*net.IPNet, error) {
 				return nil, fmt.Errorf("invalid IP %q", s)
 			}
 			if ip4 := ip.To4(); ip4 != nil {
-				s += "/32"
+				s = ip4.String() + "/32"
 			} else {
 				s += "/128"
 			}
