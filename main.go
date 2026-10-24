@@ -45,6 +45,8 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("load config")
 	}
+	log.Info().Interface("config", cfg).Msg("config loaded")
+
 	allowed, err := httpx.ParseNets(cfg.Admin.AllowedIPs)
 	if err != nil {
 		log.Fatal().Err(err).Msg("admin allowedIPs")
